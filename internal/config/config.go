@@ -59,3 +59,24 @@ func EnsureConfigExists(configPath string) error {
 
 	return nil
 }
+
+func LoadConfig() (*Config, error) {
+	configPath := filepath.Join(os.Getenv("HOME"), ".config", "hyperatomic", "config.toml")
+
+	if err := EnsureConfigExists(configPath); err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	cfg := &Config{}
+
+	if err := toml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config file: %w", err)
+	}
+
+	return cfg, nil
+}
