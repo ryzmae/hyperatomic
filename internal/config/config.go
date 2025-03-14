@@ -20,7 +20,7 @@ type Config struct {
 
 var (
 	cfg      *Config
-	cfgMutex *sync.RWMutex
+	cfgMutex = &sync.RWMutex{}
 )
 
 func DefaultConfig() *Config {
@@ -70,14 +70,17 @@ func LoadConfig() (*Config, error) {
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
-	cfg := &Config{}
-
-	if err := toml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config file: %w", err)
+	newCfg := &Config{}
+	if err := toml.Unmarshal(data, newCfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
+
+	cfgMutex.Lock()
+	cfg = newCfg
+	cfgMutex.Unlock()
 
 	if cfg.Logging.LiveReload {
 		go watchConfig(configPath)
@@ -85,7 +88,6 @@ func LoadConfig() (*Config, error) {
 
 	return cfg, nil
 }
-
 func watchConfig(configPath string) {
 	watcher, err := fsnotify.NewWatcher()
 
@@ -133,5 +135,10 @@ func watchConfig(configPath string) {
 func GetConfig() *Config {
 	cfgMutex.RLock()
 	defer cfgMutex.RUnlock()
+
+	if cfg == nil {
+		fmt.Println("⚠️ Warning: Config is not initialized, returning default config")
+		return DefaultConfig()
+	}
 	return cfg
 }

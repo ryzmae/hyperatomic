@@ -11,8 +11,7 @@ import (
 
 type Logger struct {
 	logFile *os.File
-	logChan chan string
-	wg      sync.WaitGroup
+	mutex   sync.Mutex
 }
 
 const (
@@ -23,61 +22,52 @@ const (
 )
 
 func NewLogger(cfg *config.Config) (*Logger, error) {
-	file, err := os.OpenFile(cfg.Logging.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	logPath := cfg.Logging.LogFile
+
+	logDir := os.Getenv("HOME") + "/.config/hyperatomic/"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Println("Failed to open log file, using stdout instead")
-		file = os.Stdout
+		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	logger := &Logger{
-		logFile: file,
-		logChan: make(chan string, 1000),
-	}
-
-	logger.wg.Add(1)
-	go logger.logWorker()
-
-	return logger, nil
+	return &Logger{logFile: logFile}, nil
 }
 
-func (l *Logger) logWorker() {
-	defer l.wg.Done()
-	for msg := range l.logChan {
-		_, _ = l.logFile.WriteString(msg)
+func (l *Logger) Log(level string, format string, args ...any) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	message := fmt.Sprintf("%s [%s] %s\n", time.Now().Format(time.RFC3339), level, fmt.Sprintf(format, args...))
+
+	if _, err := l.logFile.WriteString(message); err != nil {
+		fmt.Println("Error writing to log file:", err)
 	}
 }
 
-func shouldLog(configLevel, messageLevel string) bool {
-	levels := map[string]int{
-		DEBUG: 0,
-		INFO:  1,
-		WARN:  2,
-		ERROR: 3,
-	}
-
-	configLevelValue, configExists := levels[configLevel]
-	messageLevelValue, messageExists := levels[messageLevel]
-
-	if !configExists || !messageExists {
-		return true
-	}
-
-	return messageLevelValue >= configLevelValue
+func (l *Logger) Close() {
+	l.logFile.Close()
 }
 
-func (l *Logger) Log(level, format string, v ...interface{}) {
-	cfg := config.GetConfig() // Fetch live config
+func (l *Logger) Info(format string, args ...any) error {
+	l.Log(INFO, format, args...)
+	return nil
+}
 
-	if !shouldLog(cfg.Logging.LogLevel, level) {
-		return
-	}
+func (l *Logger) Debug(format string, args ...any) error {
+	l.Log(DEBUG, format, args...)
+	return nil
+}
 
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	message := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level, fmt.Sprintf(format, v...))
+func (l *Logger) Warn(format string, args ...any) error {
+	l.Log(WARN, format, args...)
+	return nil
+}
 
-	select {
-	case l.logChan <- message:
-	default:
-		fmt.Println("Log channel full, dropping log:", message)
-	}
+func (l *Logger) Error(format string, args ...any) error {
+	l.Log(ERROR, format, args...)
+	return nil
 }
