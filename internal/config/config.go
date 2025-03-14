@@ -79,6 +79,10 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config file: %w", err)
 	}
 
+	if cfg.Logging.LiveReload {
+		go watchConfig(configPath)
+	}
+
 	return cfg, nil
 }
 
