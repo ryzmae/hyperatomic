@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/BurntSushi/toml"
+	"github.com/fsnotify/fsnotify"
+	"github.com/pelletier/go-toml/v2"
 )
 
 type Config struct {
@@ -79,4 +80,54 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func watchConfig(configPath string) {
+	watcher, err := fsnotify.NewWatcher()
+
+	if err != nil {
+		fmt.Println("Failed to create config watcher: ", err)
+		return
+	}
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				data, err := os.ReadFile(configPath)
+
+				if err != nil {
+					fmt.Println("Failed to read updated config:", err)
+					continue
+				}
+
+				newCfg := &Config{}
+
+				if err := toml.Unmarshal(data, newCfg); err != nil {
+					fmt.Println("Failed to parse updated config:", err)
+					continue
+				}
+
+				cfgMutex.Lock()
+				cfg = newCfg
+				cfgMutex.Unlock()
+			}
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			fmt.Println("Watcher error:", err)
+		}
+	}
+}
+
+func GetConfig() *Config {
+	cfgMutex.RLock()
+	defer cfgMutex.RUnlock()
+	return cfg
 }
